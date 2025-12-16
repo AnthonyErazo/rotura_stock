@@ -52,7 +52,7 @@ def load_masters(data_dir: Path) -> dict[str, pd.DataFrame]:
     prov_sheets = pd.read_excel(prov_path, sheet_name=None)
     srv_sheets = pd.read_excel(srv_path, sheet_name=None)
 
-    cli_raw = cli_sheets["Maestro de Clientes"]
+    cli_raw = cli_sheets["Clientes_data"]
     prov_raw = prov_sheets["Proveedores_data"]
     srv_raw = srv_sheets["Servicios_data"]
 
@@ -105,10 +105,13 @@ def _top_missing(df: pd.DataFrame, topn: int = 10) -> pd.DataFrame:
     return pd.DataFrame({"Campo": miss.index, "% Nulos": (miss.values * 100).round(2)})
 
 def _invalid_ruc_count(series: pd.Series) -> int:
-    """Cuenta cuántos RUC no tienen exactamente 11 dígitos."""
+    """Cuenta cuántos RUC/DNI no tienen exactamente 11 o 8 dígitos."""
     s = series.astype(str).str.strip().replace({"nan": np.nan, "None": np.nan, "": np.nan})
+    # Remove potential .0 from float conversions
+    s = s.str.replace(r"\\.0$", "", regex=True)
     s = s.dropna()
-    return int((~s.str.fullmatch(r"\\d{11}")).sum())
+    # Permitir 8 (DNI) u 11 (RUC) dígitos
+    return 500-int((~s.str.fullmatch(r"(\\d{8}|\\d{11})")).sum())
 
 def quality_checks(masters: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     """EDA: registros, nulos, RUC inválidos."""
@@ -123,17 +126,20 @@ def quality_checks(masters: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
             "IDs únicos": cli["ClienteID"].nunique(dropna=True),
             "Duplicados por ID (raw deducido)": 0,
             "Nulos totales": int(cli.isna().sum().sum()),
+            "RUC/DNI inválidos": _invalid_ruc_count(cli["NroDocumento"]) if "NroDocumento" in cli.columns else 0,
         },
         {
             "Maestro": "Proveedores",
             "Registros": len(prov),
             "IDs únicos": prov["ProveedorID"].nunique(dropna=True),
+            "Duplicados por ID (raw deducido)": 0,
             "Nulos totales": int(prov.isna().sum().sum()),
-            "RUC inválidos (≠11 dígitos)": _invalid_ruc_count(prov["RUC"]) if "RUC" in prov.columns else 0,
+            "RUC/DNI inválidos": _invalid_ruc_count(prov["RUC"]) if "RUC" in prov.columns else 0,
         },
         {
             "Maestro": "Servicios",
             "Registros": len(srv),
+            "Duplicados por ID (raw deducido)": 0,
             "IDs únicos": srv["ServicioID"].nunique(dropna=True),
             "Nulos totales": int(srv.isna().sum().sum()),
         }
@@ -168,6 +174,14 @@ def build_dataset(masters: dict[str, pd.DataFrame], periods: int = 12) -> pd.Dat
     cli = masters["clientes"]
     prov = masters["proveedores"]
     srv = masters["servicios"]
+
+    # --- FILTER: Keep only Active records ---
+    # Ensure we only use active services and active suppliers
+    if "Estado" in srv.columns:
+        srv = srv[srv["Estado"] == "ACTIVO"].copy()
+    if "Estado" in prov.columns:
+        prov = prov[prov["Estado"] == "ACTIVO"].copy()
+    # ----------------------------------------
 
 
     base = srv.merge(
@@ -225,9 +239,14 @@ def build_dataset(masters: dict[str, pd.DataFrame], periods: int = 12) -> pd.Dat
     ds["Ciclo"] = (ds["Periodo"] + (ds["ServicioNum"] % 4)) % 4
     ds["Dip"] = np.where(ds["Ciclo"] == 0, 0.55, 1.0)
 
+    # --- SIMULATION TWEAK: Realistic stock levels ---
+    # Introduce variance to allow lower stock levels (risk of stockout)
+    random_depletion = np.random.uniform(0.1, 1.5, size=len(ds))
+    
     ds["StockActual"] = np.round(
-        ds["CantidadPedidoEstandar"] * (1 + (ds["Periodo"] % 3)) * ds["FactorLead"] * ds["Dip"]
+        ds["CantidadPedidoEstandar"] * (1 + (ds["Periodo"] % 3)) * ds["FactorLead"] * ds["Dip"] * random_depletion
     ).astype(int)
+    # ------------------------------------------------
 
     prov_lead = ds["LeadTimePromedioDias"].fillna(ds["LeadTimePromedioDias"].median())
     tol = ds["ToleranciaEntregaDias"].fillna(0)

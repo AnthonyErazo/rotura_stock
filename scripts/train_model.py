@@ -3,7 +3,12 @@ Entrena modelo predictivo de rotura de stock (Stockout14d).
 Genera dataset, entrena Regresión Logística, guarda modelo y métricas.
 Uso: python scripts/train_model.py
 """
+import sys
 from pathlib import Path
+
+# Add project root to path so we can import wms_pipeline
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
 import pandas as pd
 from wms_pipeline import load_masters, build_dataset, train_or_load_model, quality_checks
 
