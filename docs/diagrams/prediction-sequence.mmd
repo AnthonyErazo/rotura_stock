@@ -1,0 +1,32 @@
+sequenceDiagram
+    autonumber
+    actor U as Usuario
+    participant UI as Dashboard Streamlit
+    participant P as wms_pipeline
+    participant X as Maestros Excel
+    participant M as Modelo entrenado
+
+    U->>UI: Abre la pestana Prediccion
+    UI->>P: load_masters(data)
+    P->>X: Lee clientes, proveedores y servicios
+    X-->>P: DataFrames maestros
+    P-->>UI: Datos normalizados
+    UI->>P: build_dataset(periodos=12)
+    P-->>UI: Snapshots con Stockout14d
+    UI->>P: train_or_load_model(dataset)
+    P->>P: Separa grupos, transforma y entrena
+    P->>M: Guarda pipeline en joblib
+    M-->>P: Pipeline disponible en memoria
+
+    alt Caso del dataset
+        U->>UI: Selecciona servicio y periodo
+        UI->>P: predict_from_dataset_row(caso)
+    else Formulario manual
+        U->>UI: Ingresa stock, demanda y recepcion
+        UI->>P: predict_from_form(valores)
+    end
+
+    P->>M: predict_proba(variables)
+    M-->>P: Probabilidad de rotura
+    P-->>UI: Probabilidad y recomendacion
+    UI-->>U: Muestra nivel de riesgo y accion

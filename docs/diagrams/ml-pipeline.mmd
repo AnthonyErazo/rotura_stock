@@ -1,0 +1,18 @@
+flowchart TB
+    A[Maestros Excel] --> B[load_masters]
+    B --> C[Normalizacion y deduplicacion]
+    C --> D[quality_checks]
+    C --> E[build_dataset]
+    E --> F[Variables numericas y categoricas]
+    F --> G[ColumnTransformer]
+    G --> H[Imputacion y codificacion]
+    H --> I[Regresion logistica balanceada]
+    I --> J[Evaluacion]
+    J --> K[Accuracy]
+    J --> L[ROC-AUC]
+    J --> M[Recall]
+    I --> N[Modelo joblib]
+    N --> O[Prediccion por dataset]
+    N --> P[Prediccion por formulario]
+    O --> Q[Probabilidad y nivel de riesgo]
+    P --> Q
